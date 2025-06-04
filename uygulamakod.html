@@ -1,0 +1,574 @@
+Fazla Mesai Ücreti Hesaplama Kod;
+
+
+
+
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fazla Mesai Ücreti Hesaplama</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        /* Base styles for scrollbar, will be overridden by theme-specific classes */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="font-inter transition-colors duration-300">
+    <div id="root"></div>
+
+    <!-- React and ReactDOM CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX transformation in browser (for development, in production usually pre-compiled) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="text/babel">
+        // Hardcoded public holidays for Turkey in 2025
+        // Each holiday now includes a 'type' property to distinguish Arefe days
+        const publicHolidays2025 = [
+            { date: new Date(2025, 0, 1), name: 'Yılbaşı', type: 'full' },
+            { date: new Date(2025, 2, 30), name: 'Ramazan Bayramı Arife', type: 'arefe' }, // Ramazan Bayramı Arife
+            { date: new Date(2025, 2, 31), name: 'Ramazan Bayramı 1. Gün', type: 'full' },
+            { date: new Date(2025, 3, 1), name: 'Ramazan Bayramı 2. Gün', type: 'full' },
+            { date: new Date(2025, 3, 2), name: 'Ramazan Bayramı 3. Gün', type: 'full' },
+            { date: new Date(2025, 3, 23), name: 'Ulusal Egemenlik ve Çocuk Bayramı', type: 'full' },
+            { date: new Date(2025, 4, 1), name: 'Emek ve Dayanışma Günü', type: 'full' },
+            { date: new Date(2025, 4, 19), name: 'Atatürk\'ü Anma, Gençlik ve Spor Bayramı', type: 'full' },
+            { date: new Date(2025, 5, 6), name: 'Kurban Bayramı Arife', type: 'arefe' }, // Kurban Bayramı Arife
+            { date: new Date(2025, 5, 7), name: 'Kurban Bayramı 1. Gün', type: 'full' },
+            { date: new Date(2025, 5, 8), name: 'Kurban Bayramı 2. Gün', type: 'full' },
+            { date: new Date(2025, 5, 9), name: 'Kurban Bayramı 3. Gün', type: 'full' },
+            { date: new Date(2025, 6, 15), name: 'Demokrasi ve Milli Birlik Günü', type: 'full' },
+            { date: new Date(2025, 7, 30), name: 'Zafer Bayramı', type: 'full' },
+            { date: new Date(2025, 9, 29), name: 'Cumhuriyet Bayramı', type: 'full' },
+        ];
+
+        // Utility function to format date as YYYY-MM-DD
+        const formatDate = (date) => {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
+        // Main App component
+        function App() {
+            const [currentDate, setCurrentDate] = React.useState(new Date());
+            const [monthlySalary, setMonthlySalary] = React.useState(0);
+            const [dailyWage, setDailyWage] = React.useState(0);
+            const [overtimeHours, setOvertimeHours] = React.useState({});
+            const [overtimeMultiplier, setOvertimeMultiplier] = React.useState(1.5);
+            const [totalOvertimePay, setTotalOvertimePay] = React.useState(0);
+            const [holidayBonus, setHolidayBonus] = React.useState(0);
+            const [totalEarnings, setTotalEarnings] = React.useState(0);
+            const [amountAddedFromOvertime, setAmountAddedFromOvertime] = React.useState(0);
+            const [totalMonthlyOvertimeHours, setTotalMonthlyOvertimeHours] = React.useState(0);
+            const [triggerCalculation, setTriggerCalculation] = React.useState(false);
+
+            // Modal specific states
+            const [showOvertimeModal, setShowOvertimeModal] = React.useState(false);
+            const [selectedDateForOvertime, setSelectedDateForOvertime] = React.useState(null);
+            const [currentOvertimeInput, setCurrentOvertimeInput] = React.useState('');
+            const [isOffDayModal, setIsOffDayModal] = React.useState(false);
+
+            // State to store off days (set of date strings)
+            const [offDays, setOffDays] = React.useState(new Set());
+
+            // Dark mode state - Starts in light mode
+            const [isDarkMode, setIsDarkMode] = React.useState(false);
+
+            // Derived daily and hourly wages based on monthly salary or manual input
+            const calculatedDailyWage = monthlySalary > 0 ? monthlySalary / 30 : dailyWage;
+            const calculatedHourlyWage = monthlySalary > 0 ? monthlySalary / 240 : (dailyWage / 8);
+
+            // Function to calculate all earnings
+            const calculateEarnings = React.useCallback(() => {
+                const year = currentDate.getFullYear();
+                const month = currentDate.getMonth();
+
+                // Filter holidays for the current month, including Arefe days for bonus calculation
+                const holidaysInMonth = publicHolidays2025.filter(holiday =>
+                    holiday.date.getFullYear() === year && holiday.date.getMonth() === month
+                );
+
+                // Assuming Arefe days are counted as full days for bonus purposes
+                const calculatedHolidayBonus = calculatedDailyWage * holidaysInMonth.length;
+                setHolidayBonus(calculatedHolidayBonus);
+
+                let totalOvertime = 0;
+                let currentMonthTotalOvertimeHours = 0;
+                const overtimeHourlyRate = calculatedHourlyWage * overtimeMultiplier;
+                const safeOvertimeHourlyRate = isNaN(overtimeHourlyRate) ? 0 : overtimeHourlyRate;
+
+                for (const dateString in overtimeHours) {
+                    if (overtimeHours.hasOwnProperty(dateString)) {
+                        const date = new Date(dateString);
+                        // Only sum overtime for the currently displayed month and if it's not an off day
+                        if (date.getFullYear() === year && date.getMonth() === month && !offDays.has(dateString)) {
+                            const hours = overtimeHours[dateString];
+                            totalOvertime += hours * safeOvertimeHourlyRate;
+                            currentMonthTotalOvertimeHours += hours;
+                        }
+                    }
+                }
+                setTotalOvertimePay(totalOvertime);
+                setTotalMonthlyOvertimeHours(currentMonthTotalOvertimeHours);
+
+                const totalAdded = calculatedHolidayBonus + totalOvertime;
+                setAmountAddedFromOvertime(totalAdded);
+                setTotalEarnings(monthlySalary + totalAdded);
+            }, [monthlySalary, calculatedDailyWage, calculatedHourlyWage, overtimeHours, currentDate, overtimeMultiplier, offDays]);
+
+            // Effect to run calculation when triggerCalculation changes or on initial mount
+            React.useEffect(() => {
+                calculateEarnings();
+            }, []);
+
+            React.useEffect(() => {
+                if (triggerCalculation) {
+                    calculateEarnings();
+                    setTriggerCalculation(false);
+                }
+            }, [triggerCalculation, calculateEarnings]);
+
+            // Apply dark/light mode classes to body
+            React.useEffect(() => {
+                if (isDarkMode) {
+                    document.body.classList.remove('bg-gray-100', 'text-gray-800');
+                    document.body.classList.add('bg-gray-900', 'text-gray-200');
+                    document.documentElement.classList.add('dark'); // For Tailwind's dark mode utility
+                } else {
+                    document.body.classList.remove('bg-gray-900', 'text-gray-200');
+                    document.body.classList.add('bg-gray-100', 'text-gray-800');
+                    document.documentElement.classList.remove('dark'); // For Tailwind's dark mode utility
+                }
+                // Update scrollbar colors based on theme
+                const scrollbarTrack = document.querySelector('::-webkit-scrollbar-track');
+                const scrollbarThumb = document.querySelector('::-webkit-scrollbar-thumb');
+                if (scrollbarTrack && scrollbarThumb) {
+                    if (isDarkMode) {
+                        scrollbarTrack.style.backgroundColor = '#4a5568';
+                        scrollbarThumb.style.backgroundColor = '#a0aec0';
+                    } else {
+                        scrollbarTrack.style.backgroundColor = '#e0e0e0';
+                        scrollbarThumb.style.backgroundColor = '#888';
+                    }
+                }
+            }, [isDarkMode]);
+
+            const handleMonthlySalaryChange = (e) => {
+                const value = parseFloat(e.target.value);
+                setMonthlySalary(isNaN(value) ? 0 : value);
+                if (!isNaN(value) && value > 0) {
+                    setDailyWage(0);
+                }
+            };
+
+            const handleDailyWageChange = (e) => {
+                if (monthlySalary === 0) {
+                    const value = parseFloat(e.target.value);
+                    setDailyWage(isNaN(value) ? 0 : value);
+                }
+            };
+
+            const handleOvertimeMultiplierChange = (e) => {
+                const value = parseFloat(e.target.value);
+                setOvertimeMultiplier(isNaN(value) ? 0 : value);
+            };
+
+            // Function to open the overtime input modal
+            const openOvertimeModal = (date) => {
+                const dateString = formatDate(date);
+                setSelectedDateForOvertime(date);
+                setIsOffDayModal(offDays.has(dateString));
+                setCurrentOvertimeInput(offDays.has(dateString) ? '' : (overtimeHours[dateString] || ''));
+                setShowOvertimeModal(true);
+            };
+
+            // Function to close the overtime input modal
+            const closeOvertimeModal = () => {
+                setShowOvertimeModal(false);
+                setSelectedDateForOvertime(null);
+                setCurrentOvertimeInput('');
+                setIsOffDayModal(false);
+            };
+
+            // Handle off day checkbox toggle in modal
+            const handleOffDayToggle = (e) => {
+                const checked = e.target.checked;
+                setIsOffDayModal(checked);
+                if (checked) {
+                    setCurrentOvertimeInput('');
+                } else {
+                    const dateString = formatDate(selectedDateForOvertime);
+                    setCurrentOvertimeInput(overtimeHours[dateString] || '');
+                }
+            };
+
+            // Function to save overtime hours from the modal
+            const saveOvertime = () => {
+                if (selectedDateForOvertime) {
+                    const dateString = formatDate(selectedDateForOvertime);
+                    if (isOffDayModal) {
+                        setOffDays(prev => new Set(prev).add(dateString));
+                        setOvertimeHours(prev => ({
+                            ...prev,
+                            [dateString]: 0,
+                        }));
+                    } else {
+                        setOffDays(prev => {
+                            const newSet = new Set(prev);
+                            newSet.delete(dateString);
+                            return newSet;
+                        });
+                        const hours = parseFloat(currentOvertimeInput);
+                        setOvertimeHours(prev => ({
+                            ...prev,
+                            [dateString]: isNaN(hours) || hours < 0 ? 0 : hours,
+                        }));
+                    }
+                }
+                closeOvertimeModal();
+            };
+
+            // Get days in the current month
+            const getDaysInMonth = (year, month) => {
+                return new Date(year, month + 1, 0).getDate();
+            };
+
+            // Get the first day of the month (0 for Sunday, 1 for Monday, etc.)
+            const getFirstDayOfMonth = (year, month) => {
+                const day = new Date(year, month, 1).getDay();
+                return day === 0 ? 6 : day - 1;
+            };
+
+            // Render the calendar days
+            const renderCalendarDays = () => {
+                const year = currentDate.getFullYear();
+                const month = currentDate.getMonth();
+                const numDays = getDaysInMonth(year, month);
+                const firstDay = getFirstDayOfMonth(year, month);
+
+                const days = [];
+                for (let i = 0; i < firstDay; i++) {
+                    days.push(<div key={`empty-${i}`} className={`p-2 border rounded-lg aspect-square ${isDarkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}></div>);
+                }
+
+                for (let i = 1; i <= numDays; i++) {
+                    const dayDate = new Date(year, month, i);
+                    const dateString = formatDate(dayDate);
+                    
+                    // Check if it's a regular holiday or an Arefe day
+                    const holidayInfo = publicHolidays2025.find(holiday =>
+                        formatDate(holiday.date) === dateString
+                    );
+                    const isHoliday = holidayInfo && holidayInfo.type === 'full';
+                    const isArefe = holidayInfo && holidayInfo.type === 'arefe';
+
+                    const isOffDay = offDays.has(dateString);
+                    const enteredOvertime = overtimeHours[dateString];
+
+                    let dayClasses = `p-3 border rounded-lg flex flex-col items-center justify-between aspect-square cursor-pointer`;
+
+                    if (isHoliday) {
+                        dayClasses += ` ${isDarkMode ? 'bg-red-700 text-white border-red-800' : 'bg-red-100 text-red-800 border-red-300'} font-bold shadow-sm`;
+                    } else if (isOffDay) {
+                        dayClasses += ` ${isDarkMode ? 'bg-yellow-700 text-white border-yellow-800' : 'bg-yellow-100 text-yellow-800 border-yellow-300'} font-bold shadow-sm`;
+                    } else if (isArefe) { // New styling for Arefe days (e.g., blue)
+                        dayClasses += ` ${isDarkMode ? 'bg-blue-700 text-white border-blue-800' : 'bg-blue-100 text-blue-800 border-blue-300'} font-bold shadow-sm`;
+                    } else if (enteredOvertime > 0) {
+                        dayClasses += ` ${isDarkMode ? 'bg-green-700 text-white border-green-800' : 'bg-green-100 text-green-800 border-green-300'} font-bold shadow-sm`;
+                    } else {
+                        dayClasses += ` ${isDarkMode ? 'bg-gray-700 text-gray-200 border-gray-600' : 'bg-white text-gray-800 border-gray-200'}`;
+                    }
+                    dayClasses += ` ${isDarkMode ? 'hover:bg-indigo-600' : 'hover:bg-blue-100'} transition-colors duration-200`;
+
+                    days.push(
+                        <div
+                            key={dateString}
+                            onClick={() => openOvertimeModal(dayDate)}
+                            className={dayClasses}
+                        >
+                            <span className="text-xl font-semibold">{i}</span>
+                            {enteredOvertime > 0 && !isOffDay && (
+                                <span className={`text-sm mt-auto p-1 rounded-md ${isDarkMode ? 'text-gray-200 bg-gray-600' : 'text-gray-600 bg-gray-200'}`}>
+                                    {enteredOvertime} Saat
+                                </span>
+                            )}
+                            {isOffDay && (
+                                <span className={`text-xs mt-auto p-1 rounded-md ${isDarkMode ? 'text-yellow-200 bg-yellow-600' : 'text-yellow-600 bg-yellow-200'}`}>
+                                    Off Günü
+                                </span>
+                            )}
+                            {isArefe && ( // Display "Arife" text for Arefe days
+                                <span className={`text-xs mt-auto p-1 rounded-md ${isDarkMode ? 'text-blue-200 bg-blue-600' : 'text-blue-600 bg-blue-200'}`}>
+                                    Arife
+                                </span>
+                            )}
+                        </div>
+                    );
+                }
+                return days;
+            };
+
+            // Navigate to previous month
+            const goToPreviousMonth = () => {
+                setCurrentDate(prevDate => {
+                    const newDate = new Date(prevDate.getFullYear(), prevDate.getMonth() - 1, 1);
+                    return newDate;
+                });
+            };
+
+            // Navigate to next month
+            const goToNextMonth = () => {
+                setCurrentDate(prevDate => {
+                    const newDate = new Date(prevDate.getFullYear(), prevDate.getMonth() + 1, 1);
+                    return newDate;
+                });
+            };
+
+            // Handle calculate button click
+            const handleCalculateClick = () => {
+                setTriggerCalculation(true);
+            };
+
+            // Toggle dark mode
+            const toggleDarkMode = () => {
+                setIsDarkMode(prevMode => !prevMode);
+            };
+
+            // Format month and year for display
+            const monthNames = [
+                "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+                "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"
+            ];
+            const displayMonthYear = `${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
+
+            return (
+                <div className={`min-h-screen p-4 sm:p-6 font-sans flex flex-col items-center ${isDarkMode ? 'bg-gray-900 text-gray-200' : 'bg-gray-100 text-gray-800'}`}>
+                    {/* Dark Mode Toggle Button */}
+                    <button
+                        onClick={toggleDarkMode}
+                        className={`absolute top-4 right-4 p-2 rounded-full shadow-lg transition-colors duration-300
+                                   ${isDarkMode ? 'bg-gray-700 text-yellow-300 hover:bg-gray-600' : 'bg-white text-yellow-500 hover:bg-gray-100'}`}
+                    >
+                        {isDarkMode ? (
+                            // Sun icon for light mode
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.325 5.325l-.707.707M6.364 6.364l-.707-.707m12.728 0l-.707-.707M6.364 17.636l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                            </svg>
+                        ) : (
+                            // Moon icon for dark mode
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                            </svg>
+                        )}
+                    </button>
+
+                    {/* Header */}
+                    <h1 className={`text-4xl font-extrabold mb-8 mt-4 text-center rounded-lg p-3 shadow-lg ${isDarkMode ? 'text-blue-400 bg-gray-800' : 'text-blue-800 bg-white'}`}>
+                        Fazla Mesai Ücreti Hesaplama
+                    </h1>
+
+                    {/* Calendar Section */}
+                    <div className={`w-full max-w-4xl p-6 rounded-lg shadow-md mb-8 ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
+                        <div className="flex justify-between items-center mb-4">
+                            <button
+                                onClick={goToPreviousMonth}
+                                className="p-3 bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 transition-all duration-300 transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-xl font-bold"
+                            >
+                                &lt;
+                            </button>
+                            <h2 className={`text-3xl font-extrabold tracking-wide ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{displayMonthYear}</h2>
+                            <button
+                                onClick={goToNextMonth}
+                                className="p-3 bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 transition-all duration-300 transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-xl font-bold"
+                            >
+                                &gt;
+                            </button>
+                        </div>
+
+                        {/* Weekday Headers */}
+                        <div className={`grid grid-cols-7 gap-2 text-center font-bold mb-2 text-lg ${isDarkMode ? 'text-gray-400' : 'text-gray-700'}`}>
+                            <div>Pzt</div>
+                            <div>Sal</div>
+                            <div>Çar</div>
+                            <div>Per</div>
+                            <div>Cum</div>
+                            <div className={`${isDarkMode ? 'text-blue-400' : 'text-blue-700'}`}>Cmt</div>
+                            <div className={`${isDarkMode ? 'text-red-400' : 'text-red-700'}`}>Paz</div>
+                        </div>
+
+                        {/* Calendar Grid */}
+                        <div className="grid grid-cols-7 gap-2">
+                            {renderCalendarDays()}
+                        </div>
+
+                        {/* Total Overtime Hours Display */}
+                        <div className={`text-right mt-4 text-lg font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                            Toplam Fazla Mesai Saati (Bu Ay): <span className={`${isDarkMode ? 'text-blue-400' : 'text-blue-600'} font-bold`}>{totalMonthlyOvertimeHours.toFixed(1)} Saat</span>
+                        </div>
+                    </div>
+
+                    {/* Salary Input Section */}
+                    <div className={`w-full max-w-md p-6 rounded-lg shadow-md mb-8 ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
+                        {/* Monthly Salary Input */}
+                        <label htmlFor="monthlySalary" className={`block text-lg font-semibold mb-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                            Aylık Maaşınız (TL):
+                        </label>
+                        <input
+                            type="number"
+                            id="monthlySalary"
+                            min="0"
+                            step="0.01"
+                            value={monthlySalary || ''}
+                            onChange={handleMonthlySalaryChange}
+                            className={`w-full p-3 border rounded-lg text-xl focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4 ${isDarkMode ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-gray-800 border-gray-300'}`}
+                            placeholder="Örn: 15000"
+                        />
+
+                        {/* Daily Wage Input (Calculated or Manual) */}
+                        <label htmlFor="dailyWage" className={`block text-lg font-semibold mb-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                            Günlük Ücretiniz (TL):
+                            {monthlySalary > 0 && <span className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} ml-2`}>(Otomatik Hesaplandı)</span>}
+                        </label>
+                        <input
+                            type="number"
+                            id="dailyWage"
+                            min="0"
+                            step="0.01"
+                            value={monthlySalary > 0 ? calculatedDailyWage.toFixed(2) : dailyWage}
+                            onChange={handleDailyWageChange}
+                            readOnly={monthlySalary > 0}
+                            className={`w-full p-3 border rounded-lg text-xl focus:outline-none focus:ring-2 focus:ring-blue-500
+                                        ${isDarkMode ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-gray-800 border-gray-300'}
+                                        ${monthlySalary > 0 ? (isDarkMode ? 'bg-gray-700 text-gray-400 cursor-not-allowed' : 'bg-gray-100 text-gray-600 cursor-not-allowed') : ''}`}
+                            placeholder="Örn: 500"
+                        />
+
+                        {/* Overtime Multiplier Input */}
+                        <label htmlFor="overtimeMultiplier" className={`block text-lg font-semibold mt-4 mb-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                            Fazla Mesai Çarpanı:
+                        </label>
+                        <input
+                            type="number"
+                            id="overtimeMultiplier"
+                            min="0.5"
+                            step="0.1"
+                            value={overtimeMultiplier}
+                            onChange={handleOvertimeMultiplierChange}
+                            className={`w-full p-3 border rounded-lg text-xl focus:outline-none focus:ring-2 focus:ring-blue-500 ${isDarkMode ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-gray-800 border-gray-300'}`}
+                            placeholder="Örn: 1.5"
+                        />
+
+                        {/* Display Calculated Hourly Wage */}
+                        <div className={`mt-4 flex justify-between items-center text-lg font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                            <span>Saatlik Ücretiniz (TL):</span>
+                            <span className={`${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>{calculatedHourlyWage.toFixed(2)} TL</span>
+                        </div>
+                    </div>
+
+                    {/* Calculate Button */}
+                    <button
+                        onClick={handleCalculateClick}
+                        className="w-full max-w-md p-4 bg-green-600 text-white font-bold text-xl rounded-lg shadow-md hover:bg-green-700 transition-colors duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 mb-8"
+                    >
+                        Maaş Hesapla
+                    </button>
+
+                    {/* Calculation Results */}
+                    <div className={`w-full max-w-md p-6 rounded-lg shadow-md ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
+                        <h2 className={`text-2xl font-bold mb-4 text-center ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>Hesaplama Sonuçları</h2>
+                        <div className="space-y-3">
+                            <div className="flex justify-between items-center text-lg">
+                                <span className={`${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>Resmi tatillerden maaşa eklenen tutar:</span>
+                                <span className={`font-bold ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>{holidayBonus.toFixed(2)} TL</span>
+                            </div>
+                            <div className="flex justify-between items-center text-lg">
+                                <span className={`${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>Toplam Fazla Mesai Ücreti:</span>
+                                <span className={`font-bold ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>{totalOvertimePay.toFixed(2)} TL</span>
+                            </div>
+                            <hr className={`my-3 ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`} />
+                            <div className="flex justify-between items-center text-xl font-extrabold">
+                                <span className={`${isDarkMode ? 'text-blue-400' : 'text-blue-700'}`}>Toplam Kazanç (Bu Ay):</span>
+                                <span className={`${isDarkMode ? 'text-blue-400' : 'text-blue-700'}`}>{totalEarnings.toFixed(2)} TL</span>
+                            </div>
+                            <div className={`flex justify-between items-center text-md font-semibold pt-2 border-t ${isDarkMode ? 'text-gray-200 border-gray-700' : 'text-gray-700 border-gray-100'}`}>
+                                <span>Bu ayki mesailerden maaşa eklenen tutar:</span>
+                                <span className={`${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>{amountAddedFromOvertime.toFixed(2)} TL</span>
+                            </div>
+                        </div>
+                        <p className={`text-sm mt-4 text-center ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                            *Bu hesaplama, girilen aylık maaşa veya günlük ücrete ve fazla mesai saatlerine göre yapılmıştır. Resmi tatil bonusu, o ayki resmi tatil günlerinin sayısı ile günlük ücretin çarpımıdır. Saatlik ücret, aylık maaşınızın 240'a bölünmesiyle bulunur.
+                        </p>
+                    </div>
+
+                    {/* Overtime Input Modal */}
+                    {showOvertimeModal && (
+                        <div className="fixed inset-0 bg-black flex items-center justify-center p-4 z-50" style={{ backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.7)' : 'rgba(0, 0, 0, 0.5)' }}>
+                            <div className={`p-6 rounded-lg shadow-xl w-full max-w-xs transform transition-all duration-300 scale-100 opacity-100 border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+                                <h3 className={`text-xl font-bold mb-4 text-center ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                                    {selectedDateForOvertime ? formatDate(selectedDateForOvertime) : ''} İçin Mesai Saati
+                                </h3>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="0.5"
+                                    value={currentOvertimeInput}
+                                    onChange={(e) => setCurrentOvertimeInput(e.target.value)}
+                                    placeholder="Mesai Saati Girin"
+                                    className={`w-full p-3 border rounded-lg text-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4 text-center ${isDarkMode ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-gray-800 border-gray-300'}`}
+                                    disabled={isOffDayModal}
+                                />
+                                <div className="flex items-center justify-center mb-4">
+                                    <input
+                                        type="checkbox"
+                                        id="offDayCheckbox"
+                                        checked={isOffDayModal}
+                                        onChange={handleOffDayToggle}
+                                        className={`h-5 w-5 focus:ring-indigo-400 rounded ${isDarkMode ? 'text-indigo-500 border-gray-600 bg-gray-700' : 'text-indigo-600 border-gray-300 bg-white'}`}
+                                    />
+                                    <label htmlFor="offDayCheckbox" className={`ml-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>Off Günü Olarak İşaretle</label>
+                                </div>
+                                <div className="flex justify-end space-x-3">
+                                    <button
+                                        onClick={closeOvertimeModal}
+                                        className={`px-4 py-2 rounded-lg hover:bg-opacity-80 transition-colors duration-200 ${isDarkMode ? 'bg-gray-600 text-gray-200 hover:bg-gray-700' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                                    >
+                                        İptal
+                                    </button>
+                                    <button
+                                        onClick={saveOvertime}
+                                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors duration-200"
+                                    >
+                                        Kaydet
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Render the App component to the 'root' div
+        window.onload = function() {
+            ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+        };
+    </script>
+</body>
+</html>
